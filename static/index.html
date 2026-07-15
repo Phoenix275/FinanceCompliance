@@ -210,6 +210,7 @@
 
       <div class="disclaimer" id="disclaimer"></div>
       <div class="actions">
+        <button class="btn small" id="download-pdf">⬇ Download PDF memo</button>
         <button class="btn small" id="download">⬇ Download Markdown memo</button>
       </div>
     </div>
@@ -357,18 +358,20 @@ function copyText(id, btn){
   });
 }
 
-$("download").addEventListener("click", async ()=>{
+async function downloadMemo(path, filename, type){
   if(!LAST) return;
-  const md = await (await fetch("/api/export",{
+  const res = await fetch(path,{
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({result: LAST.result, meta:{policy_type:$("ptype").value, model:LAST.model}})
-  })).text();
-  const blob = new Blob([md],{type:"text/markdown"});
+  });
+  const blob = new Blob([await res.blob()],{type});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "compliance-analysis-memo.md";
+  a.download = filename;
   a.click(); URL.revokeObjectURL(a.href);
-});
+}
+$("download").addEventListener("click", ()=>downloadMemo("/api/export","compliance-analysis-memo.md","text/markdown"));
+$("download-pdf").addEventListener("click", ()=>downloadMemo("/api/export/pdf","compliance-analysis-memo.pdf","application/pdf"));
 
 async function loadAudit(){
   const d = await (await fetch("/api/audit")).json();

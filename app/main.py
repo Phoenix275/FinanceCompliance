@@ -15,10 +15,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import guardrails, llm, prompts, retrieval, samples
+from . import guardrails, llm, pdf_export, prompts, retrieval, samples
 from .schemas import AnalyzeRequest, AnalyzeResponse, AuditEntry, GuardrailReport
 
 load_dotenv()
@@ -117,6 +117,19 @@ def export_markdown(payload: dict):
         return prompts.to_markdown(payload["result"], payload.get("meta", {}))
     except (KeyError, TypeError) as e:
         raise HTTPException(422, f"Invalid export payload: {e}")
+
+
+@app.post("/api/export/pdf")
+def export_pdf(payload: dict):
+    try:
+        content = pdf_export.build_pdf(payload["result"], payload.get("meta", {}))
+    except (KeyError, TypeError) as e:
+        raise HTTPException(422, f"Invalid export payload: {e}")
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="compliance-analysis-memo.pdf"'},
+    )
 
 
 @app.get("/")

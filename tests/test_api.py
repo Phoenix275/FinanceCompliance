@@ -72,6 +72,25 @@ def test_export_markdown(monkeypatch):
     assert "## Policy basis" in md and "## Customer-safe response" in md
 
 
+def test_export_pdf(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    s = SAMPLES[2]
+    analysis = client.post("/api/analyze", json={
+        "policy_type": s.policy_type, "policy_text": s.policy_text,
+        "scenario_text": s.scenario_text, "question": s.question,
+    }).json()
+    r = client.post("/api/export/pdf", json={"result": analysis["result"], "meta": {"policy_type": s.policy_type}})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF")
+    assert len(r.content) > 2000
+
+
+def test_export_pdf_invalid_payload():
+    r = client.post("/api/export/pdf", json={"meta": {}})
+    assert r.status_code == 422
+
+
 def test_audit_trail_populated():
     r = client.get("/api/audit")
     assert r.status_code == 200
