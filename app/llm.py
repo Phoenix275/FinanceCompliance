@@ -15,7 +15,19 @@ from .schemas import AnalysisResult, PolicyCitation, RetrievedChunk
 log = logging.getLogger("compliance-copilot")
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
+DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+# Tried in order after DEFAULT_MODEL fails (e.g. 402 on a zero-credit key,
+# provider outage, or rate limit) before giving up and using demo mode.
+FALLBACK_MODELS = [
+    m.strip()
+    for m in os.getenv(
+        "OPENROUTER_FALLBACK_MODELS",
+        "nvidia/nemotron-3-ultra-550b-a55b:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "meta-llama/llama-3.3-70b-instruct:free",
+    ).split(",")
+    if m.strip()
+]
 DEMO_MODEL_LABEL = "demo-mode (offline)"
 
 
@@ -34,7 +46,15 @@ def _extract_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-def _chat(messages: list[dict], model: str) -> str:
+def _chat(messages: list[dict], model: str, json_mode: bool = True) -> str:
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": int(os.getenv("OPENROUTER_MAX_TOKENS", "3000")),
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     resp = requests.post(
         OPENROUTER_URL,
         headers={
@@ -43,16 +63,29 @@ def _chat(messages: list[dict], model: str) -> str:
             "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:8000"),
             "X-Title": "Compliance Copilot",
         },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-        },
+        json=payload,
         timeout=90,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    content = resp.json()["choices"][0]["message"]["content"]
+    if not content:
+        raise ValueError(f"{model} returned empty content")
+    return content
+
+
+def _chat_with_fallback(messages: list[dict]) -> tuple[str, str]:
+    """Try the configured model, then the free fallback chain.
+    Returns (content, model_that_answered). Raises if every model fails."""
+    chain = [DEFAULT_MODEL] + [m for m in FALLBACK_MODELS if m != DEFAULT_MODEL]
+    last_error: Exception = RuntimeError("no models configured")
+    for model in chain:
+        for json_mode in (True, False):  # some free providers reject response_format
+            try:
+                return _chat(messages, model, json_mode=json_mode), model
+            except Exception as e:
+                last_error = e
+                log.warning("model %s (json_mode=%s) failed: %s", model, json_mode, e)
+    raise last_error
 
 
 def analyze_with_llm(
@@ -67,7 +100,6 @@ def analyze_with_llm(
         log.warning("OPENROUTER_API_KEY not set — serving demo-mode analysis")
         return _demo_analysis(chunks, scenario_text, question), DEMO_MODEL_LABEL, True
 
-    model = DEFAULT_MODEL
     messages = [
         {"role": "system", "content": prompts.SYSTEM_PROMPT},
         {
@@ -76,16 +108,16 @@ def analyze_with_llm(
         },
     ]
     try:
-        raw = _chat(messages, model)
+        raw, model = _chat_with_fallback(messages)
         try:
             return AnalysisResult(**_extract_json(raw)), model, False
         except (ValueError, ValidationError, json.JSONDecodeError) as e:
-            # One repair round-trip, then fall back
+            # One repair round-trip with the model that answered, then fall back
             messages += [
                 {"role": "assistant", "content": raw},
                 {"role": "user", "content": prompts.repair_prompt(raw, str(e))},
             ]
-            raw2 = _chat(messages, model)
+            raw2 = _chat(messages, model, json_mode=False)
             return AnalysisResult(**_extract_json(raw2)), model, False
     except Exception as e:  # provider outage, bad key, unrepairable JSON
         log.error("LLM call failed (%s) — serving demo-mode analysis", e)
