@@ -9,8 +9,6 @@ Serves the single-page UI plus a small JSON API:
 """
 
 import logging
-import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,8 +16,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import guardrails, llm, pdf_export, prompts, retrieval, samples
-from .schemas import AnalyzeRequest, AnalyzeResponse, AuditEntry, GuardrailReport
+from . import llm, pdf_export, pipeline, prompts, samples
+from .schemas import AnalyzeRequest, AnalyzeResponse, AuditEntry
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -56,54 +54,10 @@ def analyze(req: AnalyzeRequest):
     if not req.question.strip():
         raise HTTPException(422, "Please enter the compliance question to analyze.")
 
-    started = time.time()
-
-    # Guardrail 1: PII scan/redaction on inputs (synthetic-data policy)
-    combined_pii = sorted(set(guardrails.detect_pii(req.policy_text)
-                              + guardrails.detect_pii(req.scenario_text)
-                              + guardrails.detect_pii(req.question)))
-    scenario_text, question, policy_text = req.scenario_text, req.question, req.policy_text
-    redacted = False
-    if combined_pii and req.redact_pii:
-        policy_text, _ = guardrails.redact_pii(policy_text)
-        scenario_text, _ = guardrails.redact_pii(scenario_text)
-        question, _ = guardrails.redact_pii(question)
-        redacted = True
-
-    # RAG: retrieve only the relevant policy clauses
-    chunks = retrieval.retrieve(policy_text, scenario_text, question)
-
-    # LLM + output guardrails (falls back to demo mode if provider unavailable)
-    result, model, demo, scrubbed = llm.run_analysis(
-        req.policy_type, chunks, scenario_text, question, req.output_mode
-    )
-
-    entry = AuditEntry(
-        timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        policy_type=req.policy_type,
-        question=req.question[:120],
-        risk_level=result.risk_level,
-        escalation_required=result.escalation_required,
-        model=model,
-        demo_mode=demo,
-        pii_detected=bool(combined_pii),
-    )
+    response, entry = pipeline.analyze_case(req)
     AUDIT_LOG.append(entry)
     del AUDIT_LOG[:-MAX_AUDIT]
-
-    return AnalyzeResponse(
-        result=result,
-        retrieved_chunks=chunks,
-        guardrails=GuardrailReport(
-            pii_detected=combined_pii,
-            pii_redacted=redacted,
-            decision_language_scrubbed=scrubbed,
-            grounded_chunks=len(chunks),
-        ),
-        model=model,
-        demo_mode=demo,
-        latency_ms=int((time.time() - started) * 1000),
-    )
+    return response
 
 
 @app.get("/api/audit")

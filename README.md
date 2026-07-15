@@ -31,11 +31,23 @@ Run the test suite (17 tests covering guardrails, retrieval, and the API contrac
 python -m pytest tests/ -q
 ```
 
-## Deploy (pick one)
+## Deploy
 
-- **Render (fastest):** push to GitHub → render.com → New → Blueprint → select repo. `render.yaml` does the rest; set `OPENROUTER_API_KEY` in the dashboard.
+**Streamlit Community Cloud (workshop target):** the repo ships a `streamlit_app.py` that runs the identical engine (`app/pipeline.py`) behind a Streamlit UI.
+
+1. Push this repo to GitHub.
+2. share.streamlit.io → **New app** → select the repo, branch `main`, main file **`streamlit_app.py`**.
+3. In **Advanced settings → Secrets**, add:
+   ```toml
+   OPENROUTER_API_KEY = "sk-or-..."
+   ```
+4. Deploy — the public URL is your judged demo link. Without the secret the app still runs in demo mode.
+
+Local Streamlit run: `streamlit run streamlit_app.py`
+
+Alternatives (FastAPI UI):
+- **Render:** push to GitHub → render.com → New → Blueprint (`render.yaml` does the rest; set `OPENROUTER_API_KEY` in the dashboard).
 - **Docker anywhere (AWS/Azure/VPS):** `docker build -t compliance-copilot . && docker run -p 8000:8000 -e OPENROUTER_API_KEY=sk-or-... compliance-copilot`
-- **AWS App Runner / Azure Container Apps:** point at the Dockerfile; put the key in Secrets Manager / Key Vault.
 
 ## Architecture
 
