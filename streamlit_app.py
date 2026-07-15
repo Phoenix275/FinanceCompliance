@@ -59,6 +59,14 @@ st.markdown(f"""
   .cite .id {{ font-size:11px; font-weight:800; color:{ACCENT}; letter-spacing:.4px; }}
   .disclaimer {{ background:#eceff4; border-radius:8px; padding:10px 14px;
     font-size:12.5px; color:#4a5568; margin-top:10px; }}
+  .tour-box {{ border:2px solid {ACCENT}; border-radius:12px; padding:14px 16px 10px;
+    background:linear-gradient(135deg,#f6f1fd,#efe6fb); margin:6px 0 4px;
+    animation:tourpulse 2s ease-in-out infinite; }}
+  .tour-step {{ font-size:10.5px; font-weight:800; letter-spacing:1px; color:{ACCENT}; }}
+  .tour-title {{ font-size:16px; font-weight:800; color:#2a1650; margin:3px 0 5px; }}
+  .tour-body {{ font-size:13.5px; color:#3c3560; line-height:1.5; }}
+  @keyframes tourpulse {{ 0%,100% {{ box-shadow:0 0 0 0 rgba(91,45,144,.35); }}
+    50% {{ box-shadow:0 0 0 7px rgba(91,45,144,0); }} }}
 </style>""", unsafe_allow_html=True)
 
 ai_live = bool(llm.api_key())
@@ -74,13 +82,93 @@ st.markdown(f"""
 <div class="cc-banner">🧪 <b>Synthetic data only</b> — do not paste real customer, employee, patient, vendor, or regulated data. Inputs are scanned and PII is auto-redacted.</div>
 """, unsafe_allow_html=True)
 
+# ----------------------------------------------------------------- guided tour
+TOUR = [
+    {"title": "Welcome to Compliance Copilot 👋",
+     "body": "This assistant answers compliance questions using <b>only the policy you give it</b> — "
+             "no invented rules, every claim cited. In 8 quick steps you'll run a full analysis on a "
+             "sample case. We've pre-loaded one for you. Click <b>Next</b> to begin."},
+    {"title": "① The sample scenario library",
+     "body": "In the <b>sidebar</b> we loaded a realistic (fully synthetic) case: a distributor in a "
+             "high-risk market wants to start selling <i>before</i> due diligence is complete. "
+             "Switch scenarios there anytime — each loads a policy, scenario facts, and a question."},
+    {"title": "② Three ingredients",
+     "body": "The form below has everything the AI is allowed to know: the <b>policy text</b> "
+             "(its only source of truth), the <b>scenario facts</b>, and your <b>question</b>. "
+             "In real use, an analyst pastes their own policy or SOP excerpt here."},
+    {"title": "③ Run the analysis",
+     "body": "Click the red <b>🛡️ Analyze compliance risk</b> button below 👇. The app splits the "
+             "policy into clauses, retrieves the relevant ones, and asks the AI for a structured, "
+             "cited answer. Takes ~10–20 seconds — the tour continues automatically when it's done."},
+    {"title": "④ The verdict, at a glance",
+     "body": "The headline result: a color-coded <b>risk level</b>, whether <b>escalation</b> to "
+             "senior compliance is required, and a direct answer in plain language. A busy reviewer "
+             "understands the situation in five seconds."},
+    {"title": "⑤ The evidence — why you can trust it",
+     "body": "Every claim cites a numbered policy chunk with a <b>verbatim quote</b> — open "
+             "<b>📖 Policy basis</b> below. Then open <b>🔎 Retrieved policy chunks</b> to see exactly "
+             "what the AI was allowed to read. Nothing outside the policy can leak in."},
+    {"title": "⑥ Ready-to-use workflow outputs",
+     "body": "Scroll through: a <b>checklist of missing documents</b>, a ready-to-paste <b>internal "
+             "CRM note</b>, and a <b>customer-safe reply</b> that never reveals internal risk logic. "
+             "Export it all as a <b>PDF or Markdown memo</b> at the bottom."},
+    {"title": "⑦ Guardrails — responsible by design",
+     "body": "Inputs are scanned and <b>PII is auto-redacted</b> (try typing an email in the scenario!), "
+             "the AI can never make the final call — advisory language is enforced — every run lands in "
+             "the <b>audit trail</b>, and a human-review disclaimer is always attached. "
+             "That's the tour — you're ready to demo! 🎉"},
+]
+
+
+def tour_box(step: int):
+    """Render the guided-tour callout for `step` in the current container."""
+    if st.session_state.get("tour") != step:
+        return
+    info, n = TOUR[step], len(TOUR)
+    st.markdown(f'<div class="tour-box"><div class="tour-step">🎓 GUIDED DEMO · STEP {step + 1} OF {n}</div>'
+                f'<div class="tour-title">{info["title"]}</div>'
+                f'<div class="tour-body">{info["body"]}</div></div>', unsafe_allow_html=True)
+    b1, b2, b3 = st.columns(3)
+    if step > 0 and b1.button("← Back", key=f"tour-back-{step}"):
+        st.session_state.tour = step - 1
+        st.rerun()
+    if b2.button("Finish 🎉" if step == n - 1 else "Next →", key=f"tour-next-{step}", type="primary"):
+        if step == 3 and not st.session_state.get("last"):
+            st.toast("Click '🛡️ Analyze compliance risk' first 👇", icon="⚠️")
+        elif step == n - 1:
+            st.session_state.tour = None
+            st.session_state.tour_done = True
+            st.rerun()
+        else:
+            st.session_state.tour = step + 1
+            st.rerun()
+    if b3.button("✕ Exit tour", key=f"tour-exit-{step}"):
+        st.session_state.tour = None
+        st.rerun()
+
+
+if st.session_state.pop("tour_done", False):
+    st.balloons()
+
+if st.session_state.get("tour") is None:
+    if st.button("🎓 Start guided demo tour", help="An 8-step walkthrough of the whole app — great for first-time viewers"):
+        st.session_state.tour = 0
+        st.session_state.sample_pick = samples.SAMPLES[0].title  # pre-load the demo case
+        st.session_state.pop("last", None)
+        st.rerun()
+
+tour_box(0)
+
 # ----------------------------------------------------------------- sidebar
 with st.sidebar:
     st.subheader("Sample scenario library")
     st.caption("All scenarios are synthetic (fictional entities, people, and numbers).")
+    tour_box(1)
     titles = ["— Start blank —"] + [s.title for s in samples.SAMPLES]
-    picked = st.selectbox("Load a scenario", titles, label_visibility="collapsed")
+    picked = st.selectbox("Load a scenario", titles, label_visibility="collapsed", key="sample_pick")
     sample = next((s for s in samples.SAMPLES if s.title == picked), None)
+    if st.session_state.get("tour") is not None and sample is None:
+        sample = samples.SAMPLES[0]  # tour always walks through a loaded demo case
 
     policy_type = st.selectbox("Policy type", [
         "Third-party / anti-bribery", "HCP interactions", "Gifts & hospitality",
@@ -103,6 +191,8 @@ left, right = st.columns([5, 7], gap="large")
 
 with left:
     st.subheader("1 · Describe the case")
+    tour_box(2)
+    tour_box(3)
     with st.form("analysis_form"):
         policy_text = st.text_area("Source policy text (the only source of truth)",
                                    value=sample.policy_text if sample else "", height=230)
@@ -125,10 +215,15 @@ if submitted:
             ))
         st.session_state["last"] = response
         st.session_state.setdefault("audit", []).append(entry)
+        if st.session_state.get("tour") == 3:  # tour continues once the analysis lands
+            st.session_state.tour = 4
+            st.rerun()
 
 # ----------------------------------------------------------------- results
 with right:
     st.subheader("2 · Grounded analysis")
+    for _step in (4, 5, 6, 7):
+        tour_box(_step)
     data = st.session_state.get("last")
     if not data:
         st.info("Risk level, cited policy basis, missing-information checklist, escalation "
