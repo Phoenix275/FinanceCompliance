@@ -1,0 +1,14 @@
+# One-click deploy on Render (free tier works for the demo):
+# push this repo to GitHub, then render.com → New → Blueprint → select repo.
+services:
+  - type: web
+    name: compliance-copilot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false          # set in the Render dashboard, never in git
+      - key: OPENROUTER_MODEL
+        value: anthropic/claude-sonnet-4.5

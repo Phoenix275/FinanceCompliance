@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compliance Copilot — Policy-Grounded RAG Assistant</title>
+<style>
+  :root{
+    --bg:#f4f5f9; --panel:#ffffff; --ink:#1a1d29; --muted:#5b6274;
+    --line:#e3e6ef; --accent:#5b2d90; --accent-ink:#ffffff; --accent-soft:#f0e9fa;
+    --low:#0f7b4d; --low-bg:#e2f5ec; --med:#a05a00; --med-bg:#fdf0dd;
+    --high:#b3261e; --high-bg:#fde7e5; --unclear:#4a5568; --unclear-bg:#eceff4;
+    --radius:12px; --shadow:0 1px 3px rgba(20,24,40,.07),0 8px 24px rgba(20,24,40,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:linear-gradient(120deg,#3b1d63,#5b2d90 55%,#7b4bb3);color:#fff;padding:22px 28px}
+  .hrow{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1280px;margin:0 auto;flex-wrap:wrap}
+  h1{margin:0;font-size:21px;letter-spacing:.2px}
+  h1 .logo{display:inline-block;background:#fff;color:var(--accent);border-radius:8px;padding:1px 8px;margin-right:8px;font-weight:800}
+  .sub{margin:4px 0 0;font-size:13.5px;opacity:.85}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:4px 11px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25)}
+  .chip.live{background:#0f7b4d;border-color:#0f7b4d}
+  .chip.demo{background:#a05a00;border-color:#a05a00}
+  .banner{background:#fff8e6;border-bottom:1px solid #f1e3b8;color:#6b5410;font-size:13px;padding:8px 28px;text-align:center}
+  main{max-width:1280px;margin:22px auto;padding:0 20px;display:grid;grid-template-columns:430px 1fr;gap:20px;align-items:start}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .card .body{padding:18px}
+  .card h2{margin:0 0 4px;font-size:15px}
+  .hint{font-size:12.5px;color:var(--muted);margin:0 0 12px}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:14px 0 5px;text-transform:uppercase;letter-spacing:.4px}
+  select,textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;background:#fbfbfd;color:var(--ink)}
+  textarea{resize:vertical}
+  select:focus,textarea:focus,input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{flex:1;border:0;background:#fbfbfd;padding:8px 4px;font:inherit;font-size:12.5px;cursor:pointer;color:var(--muted)}
+  .seg button.on{background:var(--accent);color:#fff;font-weight:600}
+  .row{display:flex;gap:10px;align-items:center}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:14px;cursor:pointer}
+  .btn{border:0;border-radius:9px;padding:11px 18px;font:inherit;font-weight:700;cursor:pointer}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);width:100%;margin-top:16px;font-size:15px}
+  .btn.primary:disabled{opacity:.55;cursor:wait}
+  .btn.ghost{background:transparent;color:var(--muted);width:100%;margin-top:8px;border:1px dashed var(--line)}
+  .btn.small{padding:5px 12px;font-size:12px;background:var(--accent-soft);color:var(--accent)}
+  .err{background:var(--high-bg);color:var(--high);border:1px solid #f3c1bd;border-radius:8px;padding:9px 12px;font-size:13px;margin-top:12px;display:none}
+  /* results */
+  .placeholder{padding:60px 30px;text-align:center;color:var(--muted)}
+  .placeholder .big{font-size:38px}
+  .risk-head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:18px 18px 0}
+  .risk{font-size:13px;font-weight:800;padding:7px 16px;border-radius:999px;letter-spacing:.5px}
+  .risk.Low{background:var(--low-bg);color:var(--low)} .risk.Medium{background:var(--med-bg);color:var(--med)}
+  .risk.High{background:var(--high-bg);color:var(--high)} .risk.Unclear{background:var(--unclear-bg);color:var(--unclear)}
+  .esc{font-size:12.5px;font-weight:700;padding:6px 13px;border-radius:999px}
+  .esc.yes{background:var(--high-bg);color:var(--high)} .esc.no{background:var(--low-bg);color:var(--low)}
+  .meta{margin-left:auto;font-size:12px;color:var(--muted)}
+  .answer{font-size:16px;padding:12px 18px 4px;font-weight:500}
+  .gchips{display:flex;gap:7px;flex-wrap:wrap;padding:10px 18px 16px}
+  .gchip{font-size:11.5px;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .gchip.warn{background:var(--med-bg);color:var(--med)}
+  section.block{border-top:1px solid var(--line)}
+  section.block>.head{display:flex;align-items:center;gap:9px;padding:13px 18px;cursor:pointer;user-select:none;font-weight:700;font-size:13.5px}
+  section.block>.head .n{background:var(--accent-soft);color:var(--accent);border-radius:999px;font-size:11px;padding:1px 8px}
+  section.block>.head .tw{margin-left:auto;color:var(--muted);transition:transform .15s}
+  section.block.closed>.inner{display:none}
+  section.block.closed .tw{transform:rotate(-90deg)}
+  .inner{padding:2px 18px 16px}
+  .cite{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 13px;margin:8px 0;background:#fbfaff}
+  .cite .q{font-style:italic;color:#3c3560}
+  .cite .p{font-size:13px;color:var(--muted);margin-top:5px}
+  .cite .id{font-size:11px;font-weight:800;color:var(--accent);letter-spacing:.4px}
+  .chunk{font-size:12.5px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:8px 11px;margin:6px 0;background:#fcfcfe}
+  ul.check{list-style:none;padding:0;margin:6px 0}
+  ul.check li{padding:6px 0 6px 28px;position:relative;border-bottom:1px dashed var(--line);font-size:14px}
+  ul.check li:before{content:"☐";position:absolute;left:4px;color:var(--med);font-size:16px}
+  ul.plain{margin:6px 0;padding-left:20px;font-size:14px;color:var(--muted)}
+  .note{background:#fbfbfd;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:14px;white-space:pre-wrap}
+  .note.safe{border-left:4px solid var(--low)}
+  .copy-row{display:flex;justify-content:flex-end;margin-top:6px}
+  .disclaimer{margin:0 18px 18px;background:var(--unclear-bg);border-radius:8px;padding:11px 14px;font-size:12.5px;color:var(--unclear)}
+  .disclaimer:before{content:"⚖️ ";}
+  .actions{display:flex;gap:10px;padding:0 18px 18px}
+  .audit-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .audit-table th,.audit-table td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  .audit-table th{color:var(--muted);font-weight:600}
+  .pill{font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px}
+  footer{max-width:1280px;margin:8px auto 40px;padding:0 20px;font-size:12px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div>
+      <h1><span class="logo">CC</span>Compliance Copilot</h1>
+      <p class="sub">Policy-grounded RAG assistant for finance &amp; compliance teams · third-party due diligence · HCP interactions · trade compliance · expense controls</p>
+    </div>
+    <div class="chips">
+      <span class="chip" id="health-chip">connecting…</span>
+      <span class="chip">Human-in-the-loop by design</span>
+    </div>
+  </div>
+</header>
+<div class="banner">🧪 Synthetic data only — do not paste real customer, employee, patient, vendor, or regulated data. Inputs are scanned and PII is auto-redacted.</div>
+
+<main>
+  <!-- ============ INPUT PANEL ============ -->
+  <div class="card">
+    <div class="body">
+      <h2>1 · Describe the case</h2>
+      <p class="hint">Load a synthetic scenario or paste your own policy. The AI answers <b>only</b> from the policy you provide.</p>
+
+      <label for="sample">Sample scenario library (synthetic)</label>
+      <select id="sample"><option value="">— Start blank —</option></select>
+
+      <label for="ptype">Policy type</label>
+      <select id="ptype">
+        <option>Third-party / anti-bribery</option>
+        <option>HCP interactions</option>
+        <option>Gifts &amp; hospitality</option>
+        <option>Trade compliance / sanctions</option>
+        <option>Anti-bribery / finance controls</option>
+        <option>KYC / AML</option>
+        <option>Internal policy</option>
+      </select>
+
+      <label for="policy">Source policy text <span style="text-transform:none;font-weight:400">(the only source of truth)</span></label>
+      <textarea id="policy" rows="9" placeholder="Paste the relevant policy or SOP excerpt…"></textarea>
+
+      <label for="scenario">Scenario details</label>
+      <textarea id="scenario" rows="6" placeholder="Describe the (synthetic) customer, vendor, transaction, or expense scenario…"></textarea>
+
+      <label for="question">Compliance question</label>
+      <textarea id="question" rows="2" placeholder="e.g. Can we sign the agreement and fulfill the first order now?"></textarea>
+
+      <label>Answer for</label>
+      <div class="seg" id="mode">
+        <button data-m="Compliance Analyst" class="on">Compliance Analyst</button>
+        <button data-m="Operations">Operations</button>
+        <button data-m="Executive Summary">Executive</button>
+      </div>
+
+      <label class="toggle"><input type="checkbox" id="redact" checked> Auto-redact detected PII before analysis</label>
+
+      <button class="btn primary" id="analyze">Analyze compliance risk</button>
+      <button class="btn ghost" id="clear">Clear form</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>
+
+  <!-- ============ RESULTS PANEL ============ -->
+  <div id="results-col">
+    <div class="card" id="placeholder-card">
+      <div class="placeholder">
+        <div class="big">🛡️</div>
+        <h2>2 · Grounded analysis appears here</h2>
+        <p>Risk level, cited policy basis, missing-information checklist, escalation recommendation, internal note, and a customer-safe response — every claim traceable to a policy clause.</p>
+      </div>
+    </div>
+
+    <div class="card" id="result-card" style="display:none">
+      <div class="risk-head">
+        <span class="risk" id="risk">—</span>
+        <span class="esc" id="esc">—</span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <div class="answer" id="answer"></div>
+      <div class="gchips" id="gchips"></div>
+
+      <section class="block" id="b-evidence">
+        <div class="head" onclick="tog(this)">📖 Policy basis — cited evidence <span class="n" id="n-evidence"></span><span class="tw">▾</span></div>
+        <div class="inner" id="evidence"></div>
+      </section>
+
+      <section class="block closed" id="b-chunks">
+        <div class="head" onclick="tog(this)">🔎 Retrieved policy chunks (what the AI was allowed to see) <span class="n" id="n-chunks"></span><span class="tw">▾</span></div>
+        <div class="inner" id="chunks"></div>
+      </section>
+
+      <section class="block" id="b-missing">
+        <div class="head" onclick="tog(this)">📋 Missing information checklist <span class="n" id="n-missing"></span><span class="tw">▾</span></div>
+        <div class="inner"><ul class="check" id="missing"></ul></div>
+      </section>
+
+      <section class="block" id="b-escalation" style="display:none">
+        <div class="head" onclick="tog(this)">🚩 Escalation<span class="tw">▾</span></div>
+        <div class="inner"><div class="note" id="esc-reason"></div></div>
+      </section>
+
+      <section class="block closed" id="b-assump">
+        <div class="head" onclick="tog(this)">💭 Assumptions <span class="n" id="n-assump"></span><span class="tw">▾</span></div>
+        <div class="inner"><ul class="plain" id="assumptions"></ul></div>
+      </section>
+
+      <section class="block">
+        <div class="head" onclick="tog(this)">🗒️ Internal note (CRM / ticket draft)<span class="tw">▾</span></div>
+        <div class="inner">
+          <div class="note" id="internal"></div>
+          <div class="copy-row"><button class="btn small" onclick="copyText('internal',this)">Copy</button></div>
+        </div>
+      </section>
+
+      <section class="block">
+        <div class="head" onclick="tog(this)">✉️ Customer-safe response<span class="tw">▾</span></div>
+        <div class="inner">
+          <div class="note safe" id="safe"></div>
+          <div class="copy-row"><button class="btn small" onclick="copyText('safe',this)">Copy</button></div>
+        </div>
+      </section>
+
+      <div class="disclaimer" id="disclaimer"></div>
+      <div class="actions">
+        <button class="btn small" id="download">⬇ Download Markdown memo</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <section class="block closed" style="border-top:0">
+        <div class="head" onclick="tog(this); loadAudit()">🧾 Audit trail (session, in-memory only) <span class="tw">▾</span></div>
+        <div class="inner">
+          <table class="audit-table"><thead><tr>
+            <th>Time (UTC)</th><th>Policy type</th><th>Question</th><th>Risk</th><th>Escalate</th><th>PII</th><th>Model</th>
+          </tr></thead><tbody id="audit-body"><tr><td colspan="7">No analyses yet.</td></tr></tbody></table>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Compliance Copilot MVP1 · assistive analysis only — final decisions rest with human compliance officers · no data persisted server-side · built for the GE HealthCare enterprise AI workshop
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let SAMPLES = [], LAST = null, MODE = "Compliance Analyst";
+
+function tog(head){ head.parentElement.classList.toggle("closed"); }
+function esc(s){ const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; }
+
+async function init(){
+  try{
+    const h = await (await fetch("/api/health")).json();
+    const chip = $("health-chip");
+    if(h.ai_configured){ chip.textContent = "● Live AI · " + h.model; chip.classList.add("live"); }
+    else { chip.textContent = "● Demo mode (no API key) — canned analyses"; chip.classList.add("demo"); }
+  }catch{ $("health-chip").textContent = "backend unreachable"; }
+  const s = await (await fetch("/api/samples")).json();
+  SAMPLES = s.samples;
+  for(const smp of SAMPLES){
+    const o = document.createElement("option");
+    o.value = smp.id; o.textContent = smp.title;
+    $("sample").appendChild(o);
+  }
+}
+init();
+
+$("sample").addEventListener("change", e=>{
+  const smp = SAMPLES.find(s=>s.id===e.target.value);
+  if(!smp) return;
+  $("ptype").value = smp.policy_type;
+  $("policy").value = smp.policy_text;
+  $("scenario").value = smp.scenario_text;
+  $("question").value = smp.question;
+});
+
+$("mode").addEventListener("click", e=>{
+  if(e.target.tagName!=="BUTTON") return;
+  MODE = e.target.dataset.m;
+  [...$("mode").children].forEach(b=>b.classList.toggle("on", b===e.target));
+});
+
+$("clear").addEventListener("click", ()=>{
+  ["policy","scenario","question"].forEach(id=>$(id).value="");
+  $("sample").value=""; $("err").style.display="none";
+});
+
+$("analyze").addEventListener("click", async ()=>{
+  $("err").style.display="none";
+  const btn = $("analyze");
+  btn.disabled = true; btn.textContent = "Analyzing against policy…";
+  try{
+    const res = await fetch("/api/analyze",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        policy_type: $("ptype").value,
+        policy_text: $("policy").value,
+        scenario_text: $("scenario").value,
+        question: $("question").value,
+        output_mode: MODE,
+        redact_pii: $("redact").checked,
+      })
+    });
+    if(!res.ok){
+      const d = await res.json().catch(()=>({detail:"Request failed"}));
+      throw new Error(d.detail || "Request failed");
+    }
+    LAST = await res.json();
+    render(LAST);
+  }catch(e){
+    $("err").textContent = e.message; $("err").style.display="block";
+  }finally{
+    btn.disabled = false; btn.textContent = "Analyze compliance risk";
+  }
+});
+
+function render(data){
+  const r = data.result;
+  $("placeholder-card").style.display="none";
+  $("result-card").style.display="block";
+
+  $("risk").textContent = "RISK: " + r.risk_level.toUpperCase();
+  $("risk").className = "risk " + r.risk_level;
+  $("esc").textContent = r.escalation_required ? "🚩 Escalation required" : "✓ No escalation needed";
+  $("esc").className = "esc " + (r.escalation_required ? "yes" : "no");
+  $("meta").textContent = `${data.model} · ${data.latency_ms} ms`;
+  $("answer").textContent = r.direct_answer;
+
+  const g = data.guardrails, gc = [];
+  gc.push(`<span class="gchip">📖 Grounded in ${g.grounded_chunks} policy chunks</span>`);
+  if(g.pii_detected.length) gc.push(`<span class="gchip warn">🔒 PII detected: ${esc(g.pii_detected.join(", "))}${g.pii_redacted?" — redacted":""}</span>`);
+  else gc.push(`<span class="gchip">🔒 No PII detected</span>`);
+  if(g.decision_language_scrubbed) gc.push(`<span class="gchip warn">🛡 Decision language rephrased to advisory</span>`);
+  gc.push(`<span class="gchip">👤 Human review required</span>`);
+  if(data.demo_mode) gc.push(`<span class="gchip warn">⚠ Offline demo response</span>`);
+  $("gchips").innerHTML = gc.join("");
+
+  $("evidence").innerHTML = r.policy_basis.map(c=>
+    `<div class="cite"><span class="id">CHUNK ${c.chunk_id}</span>
+      <div class="q">“${esc(c.excerpt)}”</div>
+      <div class="p">${esc(c.point)}</div></div>`).join("") || "<p class='hint'>No citations returned.</p>";
+  $("n-evidence").textContent = r.policy_basis.length;
+
+  $("chunks").innerHTML = data.retrieved_chunks.map(c=>
+    `<div class="chunk"><b>Chunk ${c.chunk_id}</b> (relevance ${c.score.toFixed(2)}) — ${esc(c.text)}</div>`).join("");
+  $("n-chunks").textContent = data.retrieved_chunks.length;
+
+  $("missing").innerHTML = r.missing_information.map(m=>`<li>${esc(m)}</li>`).join("") || "<li>None identified.</li>";
+  $("n-missing").textContent = r.missing_information.length;
+
+  $("b-escalation").style.display = r.escalation_required ? "block" : "none";
+  $("esc-reason").textContent = r.escalation_reason;
+
+  $("assumptions").innerHTML = r.assumptions.map(a=>`<li>${esc(a)}</li>`).join("") || "<li>None.</li>";
+  $("n-assump").textContent = r.assumptions.length;
+
+  $("internal").textContent = r.internal_note;
+  $("safe").textContent = r.customer_safe_response;
+  $("disclaimer").textContent = r.disclaimer;
+  $("result-card").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function copyText(id, btn){
+  navigator.clipboard.writeText($(id).textContent).then(()=>{
+    const t = btn.textContent; btn.textContent="Copied ✓";
+    setTimeout(()=>btn.textContent=t, 1200);
+  });
+}
+
+$("download").addEventListener("click", async ()=>{
+  if(!LAST) return;
+  const md = await (await fetch("/api/export",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({result: LAST.result, meta:{policy_type:$("ptype").value, model:LAST.model}})
+  })).text();
+  const blob = new Blob([md],{type:"text/markdown"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "compliance-analysis-memo.md";
+  a.click(); URL.revokeObjectURL(a.href);
+});
+
+async function loadAudit(){
+  const d = await (await fetch("/api/audit")).json();
+  if(!d.entries.length) return;
+  $("audit-body").innerHTML = d.entries.map(e=>`<tr>
+    <td>${esc(e.timestamp.replace("T"," ").replace("+00:00",""))}</td>
+    <td>${esc(e.policy_type)}</td><td>${esc(e.question)}</td>
+    <td><span class="pill risk ${e.risk_level}">${e.risk_level}</span></td>
+    <td>${e.escalation_required?"🚩":"—"}</td>
+    <td>${e.pii_detected?"🔒":"—"}</td>
+    <td>${esc(e.model)}</td></tr>`).join("");
+}
+</script>
+</body>
+</html>
